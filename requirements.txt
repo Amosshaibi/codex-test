@@ -1,0 +1,4 @@
+flask==2.2.5
+dronekit==2.9.2
+pymavlink==2.4.32
+

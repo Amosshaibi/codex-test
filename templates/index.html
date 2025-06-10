@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لوحة تحكم مهام الدرون | Drone Mission Control</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    :root {
+      --color-primary: #3B82F6; --color-success: #10B981; --color-danger: #EF4444;
+      --color-warning: #F59E0B; --color-info: #06B6D4; --color-text: #1F2937;
+      --color-bg-light: #F9FAFB; --color-border: #E5E7EB;
+    }
+    html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow-x: hidden; }
+    body { font-family: 'Cairo', sans-serif; background-color: var(--color-bg-light); color: var(--color-text); }
+    .main-header { background-color: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid var(--color-border); }
+    .card { background-color: #ffffff; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); border: 1px solid var(--color-border); padding: 1.5rem; transition: all 0.2s ease-in-out; }
+    .form-input, .form-select { @apply w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition-colors duration-200 bg-gray-50 text-base; }
+    .btn { @apply px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 transform hover:shadow-lg flex items-center justify-center gap-2 focus:outline-none focus:ring-4; }
+    .btn:active { transform: scale(0.97); filter: brightness(0.95); }
+    .btn-primary { @apply bg-blue-500 text-white hover:bg-blue-600 focus:ring-blue-300; }
+    .btn-secondary { @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-300; }
+    .btn-success { @apply bg-emerald-500 text-white hover:bg-emerald-600 focus:ring-emerald-300; }
+    .btn-danger { @apply bg-red-500 text-white hover:bg-red-600 focus:ring-red-300; }
+    .btn-info { @apply bg-cyan-500 text-white hover:bg-cyan-600 focus:ring-cyan-300; }
+    #map { height: 100%; min-height: 500px; border-radius: 1rem; border: 1px solid var(--color-border); }
+    .point-marker-icon, .drone-marker-icon, .rtl-marker-icon { color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 3px 8px rgba(0,0,0,0.25); border: 2px solid white; }
+    .point-marker-icon { background-color: var(--color-primary); width: 28px; height: 28px; font-size: 14px; }
+    .drone-marker-icon { background-color: var(--color-warning); width: 32px; height: 32px; font-size: 16px; }
+    .rtl-marker-icon { background-color: var(--color-danger); width: 32px; height: 32px; font-size: 16px; }
+    .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .mission-table { @apply min-w-full divide-y divide-gray-200; }
+    .mission-table thead th { @apply px-4 py-3 text-sm font-bold text-white uppercase tracking-wider text-center bg-gray-700; }
+    .mission-table tbody td { @apply px-4 py-3 text-sm text-gray-700 text-center whitespace-nowrap; }
+    .mission-table tbody td input, .mission-table tbody td select { @apply form-input p-1 text-center; }
+    .mission-table tbody td .action-btn { @apply text-gray-500 hover:text-gray-900 p-1 mx-1 text-base bg-transparent border-none; }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(29, 37, 51, 0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; transition: opacity 0.3s ease-in-out; }
+    .modal-container { @apply bg-white rounded-xl shadow-2xl p-6 w-full md:w-2/3 lg:w-1/2 max-h-[90vh] overflow-y-auto transform scale-95 opacity-0 transition-all duration-300; }
+    .modal-container.active { @apply scale-100 opacity-100; }
+    .modal-header { @apply flex justify-between items-center pb-3 mb-4 border-b border-gray-200; }
+    .modal-header h3 { @apply text-xl font-bold text-gray-800; }
+    .modal-footer { @apply flex justify-end gap-3 pt-4 mt-4 border-t border-gray-200; }
+    #logOutput::-webkit-scrollbar { width: 8px; }
+    #logOutput::-webkit-scrollbar-track { background: #1a202c; }
+    #logOutput::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 4px; }
+    .connection-info { @apply text-xs bg-gray-100 p-2 rounded-lg mt-2; }
+    .disabled-btn { opacity: 0.6; cursor: not-allowed; }
+    .log-info { color: #06B6D4; }
+    .log-success { color: #10B981; }
+    .log-warning { color: #F59E0B; }
+    .log-error { color: #EF4444; }
+    .log-critical { color: #EF4444; font-weight: bold; }
+  </style>
+</head>
+<body class="bg-gray-100">
+
+  <header class="main-header p-4 shadow-sm sticky top-0 z-40">
+    <div class="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+      <h1 class="text-2xl font-black text-gray-800 flex items-center gap-3"><i class="fas fa-paper-plane text-blue-500"></i><span>لوحة تحكم مهام الدرون</span></h1>
+      <div class="flex items-center gap-3 text-sm font-semibold">
+        <div id="connectionDot" class="w-3 h-3 rounded-full bg-yellow-400 animate-pulse"></div>
+        <span id="connectionStatus" class="text-gray-600">جاري التحقق...</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container mx-auto p-4 md:p-6 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <section class="lg:col-span-1 flex flex-col gap-6">
+      <div class="card">
+        <h2 class="text-xl font-bold mb-4 text-gray-700 border-b pb-2 flex items-center gap-2"><i class="fas fa-cogs text-blue-500"></i> لوحة التحكم</h2>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <button id="addPointBtn" class="btn btn-primary" onclick="showAddPointModal()"><i class="fas fa-plus"></i> إضافة نقطة</button>
+          <button id="addPointMapBtn" class="btn btn-primary" onclick="toggleAddPointMode()"><i class="fas fa-map-marked-alt"></i> تحديد بالخريطة</button>
+          <button id="saveMissionBtn" class="btn btn-success" onclick="saveMission()"><i class="fas fa-save"></i> حفظ المهمة</button>
+          <button id="loadMissionBtn" class="btn btn-secondary" onclick="loadMission()"><i class="fas fa-folder-open"></i> تحميل مهمة</button>
+          <button id="startMissionBtn" class="btn btn-info" onclick="startMission()"><i class="fas fa-play"></i> بدء المهمة</button>
+          <button id="endMissionBtn" class="btn btn-danger" onclick="endMission()"><i class="fas fa-stop"></i> إنهاء المهمة</button>
+        </div>
+        <div class="border-t pt-4 flex items-center justify-between text-sm font-medium">
+          <span>حالة الحفظ: <span id="saveStatus" class="font-bold text-red-500">غير محفوظة</span></span>
+          <button class="btn btn-secondary !py-1.5 !px-3" onclick="showRTLOptionsModal()"><i class="fas fa-route"></i> خيارات العودة</button>
+        </div>
+        <div id="droneConnectionInfo" class="connection-info hidden">
+          <div class="font-medium">إعدادات الاتصال:</div>
+          <div id="connectionString" class="truncate">/dev/ttyACM0</div>
+          <div id="baudRate">57600</div>
+        </div>
+      </div>
+      <div class="card">
+         <h3 class="text-xl font-bold mb-4 text-gray-700 border-b pb-2 flex items-center gap-2"><i class="fas fa-satellite-dish text-cyan-500"></i> ملخص وحالة المهمة</h3>
+        <div class="grid grid-cols-3 gap-4 text-base mb-4 text-center">
+          <div class="flex flex-col"><span class="text-sm text-gray-500">النقاط</span> <span id="pointsCount" class="font-bold text-lg">0</span></div>
+          <div class="flex flex-col"><span class="text-sm text-gray-500">المسافة</span> <span id="totalDistance" class="font-bold text-lg">0 م</span></div>
+          <div class="flex flex-col"><span class="text-sm text-gray-500">العودة</span> <span id="returnType" class="font-bold text-lg">RTL</span></div>
+        </div>
+        <div id="droneStatusCard" style="display: none;" class="border-t pt-4">
+            <div class="flex justify-between items-center mb-3">
+                 <h4 class="font-bold text-gray-700">حالة الدرون الحالية</h4>
+                 <button class="btn btn-primary !p-2" onclick="fetchDroneLocation()" title="تحديث موقع الدرون"><i class="fas fa-sync-alt"></i></button>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div><span class="font-medium text-gray-500">العرض:</span> <span id="droneLat" class="font-mono">--</span></div>
+              <div><span class="font-medium text-gray-500">الطول:</span> <span id="droneLon" class="font-mono">--</span></div>
+              <div><span class="font-medium text-gray-500">الارتفاع:</span> <span id="droneAlt" class="font-mono">-- م</span></div>
+              <div><span class="font-medium text-gray-500">الوضع:</span> <span id="droneMode" class="font-mono font-bold">--</span></div>
+            </div>
+        </div>
+      </div>
+      <div class="card flex-1 flex flex-col">
+        <div class="flex justify-between items-center mb-2">
+            <h3 class="text-xl font-bold text-gray-700 flex items-center gap-2"><i class="fas fa-clipboard-list text-emerald-500"></i> سجل المهام</h3>
+            <div class="flex gap-2">
+                <button class="btn btn-secondary !p-2" onclick="fetchLog()" title="تحديث السجل"><i class="fas fa-sync"></i></button>
+                <button class="btn btn-danger !p-2" onclick="clearLog()" title="مسح السجل"><i class="fas fa-trash"></i></button>
+            </div>
+        </div>
+        <div id="logOutput" class="bg-gray-900 p-3 rounded-lg text-xs overflow-auto flex-1 h-64 font-mono"></div>
+      </div>
+    </section>
+    
+    <section class="lg:col-span-2 card p-2 relative min-h-[600px]">
+      <div id="map"></div>
+      <div id="mapInfo" class="absolute top-4 right-4 bg-white bg-opacity-90 px-4 py-2 rounded-lg shadow-md text-sm font-semibold border border-gray-200">
+        انقر مرتين على الخريطة لإضافة نقطة
+      </div>
+    </section>
+
+    <section class="lg:col-span-3 card">
+      <h2 class="text-xl font-bold mb-4 text-gray-700 flex items-center gap-2"><i class="fas fa-tasks text-amber-500"></i> نقاط المهمة المجدولة</h2>
+      <div class="table-container">
+        <table id="pointsTable" class="mission-table">
+          <thead>
+            <tr>
+              <th>#</th><th>الاسم</th><th>العرض</th><th>الطول</th><th>الارتفاع</th><th>سطح البحر</th>
+              <th title="انتظار قبل (ث)">ق(ث)</th><th title="تفعيل سيرفو RC9">RC9</th><th title="انتظار بعد (ث)">ب(ث)</th>
+              <th>قناة</th><th>PWM</th><th>مدة</th><th title="إقلاع مباشر">مباشر</th><th>تفعيل</th><th>مسافة</th><th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- النوافذ المنبثقة -->
+  <div id="pointModal" class="modal-overlay hidden opacity-0"><div class="modal-container"><form id="pointForm"><div class="modal-header"><h3 id="pointModalTitle"></h3><button type="button" class="text-gray-400" onclick="hidePointModal()"><i class="fas fa-times"></i></button></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"><div class="md:col-span-2"><label for="pointName">اسم النقطة</label><input type="text" id="pointName" class="form-input"></div><div><label for="pointLat">خط العرض</label><input type="number" id="pointLat" step="any" class="form-input ltr"></div><div><label for="pointLon">خط الطول</label><input type="number" id="pointLon" step="any" class="form-input ltr"></div><div><label for="pointAlt">الارتفاع (م)</label><input type="number" id="pointAlt" class="form-input ltr"></div><div><label for="pointAltSeaLevel">ارتفاع سطح البحر (م)</label><input type="text" id="pointAltSeaLevel" disabled class="form-input bg-gray-200"></div><div class="md:col-span-2 border-t mt-4 pt-4"><h4 class="font-bold">إعدادات متقدمة</h4></div><div><label for="pointWaitBefore">انتظار قبل (ث)</label><input type="number" id="pointWaitBefore" value="0" class="form-input ltr"></div><div><label for="pointWaitAfter">انتظار بعد (ث)</label><input type="number" id="pointWaitAfter" value="0" class="form-input ltr"></div><div><label for="pointChannel">قناة RC</label><select id="pointChannel" class="form-select"><option value="OFF">إيقاف</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option></select></div><div><label for="pointPWM">قيمة PWM</label><select id="pointPWM" class="form-select"><option value="1900">1900</option><option value="1100">1100</option></select></div><div><label for="pointDuration">مدة PWM (ث)</label><input type="number" id="pointDuration" value="0" step="0.1" class="form-input ltr"></div><div class="md:col-span-2 grid grid-cols-3 gap-4 mt-2"><div class="flex items-center"><input type="checkbox" id="pointServo" class="h-5 w-5"><label for="pointServo" class="mr-2">سيرفو RC9</label></div><div class="flex items-center"><input type="checkbox" id="pointDirectFlight" class="h-5 w-5"><label for="pointDirectFlight" class="mr-2">إقلاع مباشر</label></div><div class="flex items-center"><input type="checkbox" id="pointEnabled" class="h-5 w-5"><label for="pointEnabled" class="mr-2">تفعيل</label></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="hidePointModal()">إلغاء</button><button type="submit" class="btn btn-success">حفظ</button></div></form></div></div>
+  <div id="rtlModal" class="modal-overlay hidden opacity-0"><div class="modal-container"><div class="modal-header"><h3>خيارات العودة</h3><button type="button" class="text-gray-400" onclick="hideRTLOptionsModal()"><i class="fas fa-times"></i></button></div><div class="grid gap-4"><div><label class="block mb-2">نوع العودة</label><div class="flex gap-4"><label class="flex-1 p-3 text-center cursor-pointer has-[:checked]:bg-blue-500 has-[:checked]:text-white"><input type="radio" name="rtl_mode" value="rtl" class="sr-only" checked>RTL</label><label class="flex-1 p-3 text-center cursor-pointer has-[:checked]:bg-blue-500 has-[:checked]:text-white"><input type="radio" name="rtl_mode" value="custom" class="sr-only">مخصصة</label></div></div><div><label for="rtlAlt">ارتفاع العودة (م)</label><input type="number" id="rtlAlt" value="20" class="form-input"></div><div id="customRTLFields" class="grid md:grid-cols-2 gap-4 hidden"><div><label for="rtlLat">خط عرض</label><input type="number" id="rtlLat" step="any" class="form-input"></div><div><label for="rtlLon">خط طول</label><input type="number" id="rtlLon" step="any" class="form-input"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="hideRTLOptionsModal()">إلغاء</button><button type="button" class="btn btn-success" onclick="saveRTLOptions()">حفظ</button></div></div></div>
+  <div id="universalModal" class="modal-overlay hidden opacity-0"><div class="modal-container !w-auto max-w-md"><div class="modal-header"><h3 id="universalModalTitle"></h3><button type="button" class="text-gray-400" onclick="hideUniversalModal()"><i class="fas fa-times"></i></button></div><div class="py-4 text-center"><div id="universalModalIcon" class="text-5xl mb-4"></div><p id="universalModalMessage" class="text-base mb-6"></p><div id="universalModalButtons" class="flex justify-center gap-4"></div></div></div></div>
+
+  <script>
+    const BASE_URL = window.location.origin;
+    const LOG_LIMIT = 200;
+    let map, points = [], markers = [], polyline = null, distanceLabels = [];
+    let missionSaved = true, serverConnected = false, rtlMarker = null, droneMarker = null;
+    let droneLocationIntervalId = null, addPointMode = false, logIntervalId = null;
+    let currentRTLOptions = { mode: 'rtl', alt: 20, lat: 0, lon: 0 };
+    let currentPointIndex = -1, missionRunning = false;
+
+    const pointIcon = (n) => L.divIcon({ className: 'point-marker-icon', html: `<div>${n}</div>`, iconSize: [28, 28] });
+    const droneIcon = L.divIcon({ className: 'drone-marker-icon', html: '<i class="fas fa-robot"></i>', iconSize: [32, 32] });
+    const rtlIcon = L.divIcon({ className: 'rtl-marker-icon', html: '<i class="fas fa-home"></i>', iconSize: [32, 32] });
+
+    function initMap() {
+        map = L.map('map').setView([15.3694, 44.1910], 8);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { 
+            maxZoom: 20, 
+            attribution: 'Esri'
+        }).addTo(map);
+        map.on('dblclick', (e) => handleMapClick(e.latlng));
+    }
+
+    async function handleMapClick(latlng) {
+        if (!addPointMode) return;
+        const { lat, lng } = latlng;
+        const newPoint = { 
+            name: `نقطة ${points.length + 1}`, 
+            lat, 
+            lon: lng, 
+            alt: 20, 
+            alt_sea_level: 'جارٍ التحميل...', 
+            wait_before: 0, 
+            servo: false, 
+            wait_after: 0, 
+            channel: 'OFF', 
+            pwm: 1900, 
+            duration: 0, 
+            direct_flight: false, 
+            enabled: true 
+        };
+        points.push(newPoint);
+        setMissionUnsaved();
+        updateAllUI();
+        showMessage('success', 'تمت الإضافة', `أُضيفت النقطة للجدول. جاري جلب الارتفاع...`);
+        
+        try {
+            const data = await apiCall(`/api/elevation?lat=${lat}&lon=${lng}`);
+            newPoint.alt_sea_level = parseFloat(data.elevation);
+        } catch (error) {
+            newPoint.alt_sea_level = 'خطأ';
+            showMessage('error', 'فشل جلب الارتفاع', error.message);
+        } finally { 
+            updatePointsTable(); 
+            centerMap(lat, lng, 17);
+        }
+    }
+
+    function toggleAddPointMode() {
+        addPointMode = !addPointMode;
+        const mapInfo = document.getElementById('mapInfo'), 
+              addPointMapBtn = document.getElementById('addPointMapBtn');
+              
+        if (addPointMode) {
+            mapInfo.textContent = 'وضع الإضافة نشط: انقر مرتين لإضافة نقطة';
+            mapInfo.classList.add('bg-blue-100', 'text-blue-800');
+            map.getContainer().style.cursor = 'crosshair';
+            addPointMapBtn.classList.add('ring-4');
+            map.doubleClickZoom.disable();
+            showMessage('info', 'وضع الإضافة مفعل', 'انقر مرتين على الخريطة لإضافة نقطة جديدة.');
+        } else {
+            mapInfo.textContent = 'انقر مرتين على الخريطة لإضافة نقطة';
+            mapInfo.classList.remove('bg-blue-100', 'text-blue-800');
+            map.getContainer().style.cursor = '';
+            addPointMapBtn.classList.remove('ring-4');
+            map.doubleClickZoom.enable();
+        }
+    }
+    
+    function calculateDistance(p1, p2) {
+        const R = 6371e3; // نصف قطر الأرض بالأمتار
+        const φ1 = p1.lat * Math.PI/180;
+        const φ2 = p2.lat * Math.PI/180;
+        const Δφ = (p2.lat - p1.lat) * Math.PI/180;
+        const Δλ = (p2.lon - p1.lon) * Math.PI/180;
+
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+                  
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+        return R * c;
+    }
+
+    function updateAllUI() { 
+        updateMap(); 
+        updatePointsTable(); 
+        updateMissionSummary(); 
+        updateSaveStatus(); 
+    }
+    
+    function updateMap() {
+        // مسح العلامات الموجودة
+        markers.forEach(m => map.removeLayer(m)); 
+        markers = [];
+        
+        if (polyline) map.removeLayer(polyline);
+        
+        distanceLabels.forEach(l => map.removeLayer(l)); 
+        distanceLabels = [];
+        
+        if (droneMarker) map.removeLayer(droneMarker);
+        if (rtlMarker) map.removeLayer(rtlMarker);
+
+        const latlngs = []; 
+        let previousPoint = null;
+        
+        points.forEach((p, i) => {
+            if (!p.enabled) return;
+            
+            const marker = L.marker([p.lat, p.lon], { 
+                draggable: true, 
+                icon: pointIcon(i + 1) 
+            }).addTo(map);
+            
+            marker.bindTooltip(`${i + 1}: ${p.name}`);
+            marker.on('dragend', async (e) => {
+                p.lat = e.target.getLatLng().lat; 
+                p.lon = e.target.getLatLng().lng;
+                setMissionUnsaved();
+                p.alt_sea_level = 'جارٍ التحميل...'; 
+                updateAllUI();
+                
+                try {
+                    const data = await apiCall(`/api/elevation?lat=${p.lat}&lon=${p.lon}`);
+                    p.alt_sea_level = parseFloat(data.elevation);
+                } catch { 
+                    p.alt_sea_level = 'خطأ'; 
+                }
+                updateAllUI();
+            });
+            
+            markers.push(marker); 
+            latlngs.push([p.lat, p.lon]);
+            
+            if (previousPoint) {
+                const midLat = (previousPoint.lat + p.lat) / 2;
+                const midLon = (previousPoint.lon + p.lon) / 2;
+                const distance = calculateDistance(previousPoint, p).toFixed(1);
+                
+                const label = L.marker([midLat, midLon], { 
+                    icon: L.divIcon({ 
+                        className: 'bg-white px-2 py-1 rounded-md text-xs border border-gray-300',
+                        html: `${distance} م`,
+                        iconSize: [50, 20]
+                    }) 
+                }).addTo(map);
+                
+                distanceLabels.push(label);
+            }
+            previousPoint = p;
+        });
+        
+        if (latlngs.length > 1) {
+            polyline = L.polyline(latlngs, { 
+                color: 'var(--color-primary)',
+                weight: 3
+            }).addTo(map);
+        }
+        
+        if (currentRTLOptions.mode === 'custom' && currentRTLOptions.lat && currentRTLOptions.lon) {
+            rtlMarker = L.marker([currentRTLOptions.lat, currentRTLOptions.lon], { 
+                icon: rtlIcon 
+            }).bindTooltip('نقطة العودة').addTo(map);
+        }
+        
+        centerMapOnPoints();
+    }
+
+    function updatePointsTable() {
+        const tbody = document.querySelector('#pointsTable tbody');
+        tbody.innerHTML = '';
+        
+        points.forEach((p, i) => {
+            const row = tbody.insertRow();
+            if (!p.enabled) row.classList.add('opacity-50');
+            
+            const altSeaLevelValue = (typeof p.alt_sea_level === 'number') ? 
+                p.alt_sea_level.toFixed(2) : 
+                p.alt_sea_level;
+            
+            const prevEnabled = i > 0 && points[i-1].enabled && p.enabled;
+            const distance = prevEnabled ? calculateDistance(points[i-1], p).toFixed(1) : '--';
+            
+            row.innerHTML = `
+                <td><span class="point-marker-icon mx-auto cursor-pointer" onclick="centerMap(${p.lat}, ${p.lon}, 17)">${i + 1}</span></td>
+                <td><input type="text" value="${p.name}" class="form-input" onblur="points[${i}].name=this.value; setMissionUnsaved();"></td>
+                <td><input type="number" step="any" value="${p.lat.toFixed(6)}" class="form-input" onblur="points[${i}].lat=parseFloat(this.value); setMissionUnsaved();"></td>
+                <td><input type="number" step="any" value="${p.lon.toFixed(6)}" class="form-input" onblur="points[${i}].lon=parseFloat(this.value); setMissionUnsaved();"></td>
+                <td><input type="number" value="${p.alt}" class="form-input" onblur="points[${i}].alt=parseFloat(this.value); setMissionUnsaved();"></td>
+                <td><input type="text" value="${altSeaLevelValue}" disabled class="form-input bg-gray-200"></td>
+                <td><input type="number" value="${p.wait_before}" class="form-input" onblur="points[${i}].wait_before=parseFloat(this.value); setMissionUnsaved();"></td>
+                <td><input type="checkbox" ${p.servo ? 'checked' : ''} onchange="points[${i}].servo=this.checked; setMissionUnsaved();" class="h-5 w-5 mx-auto block"></td>
+                <td><input type="number" value="${p.wait_after}" class="form-input" onblur="points[${i}].wait_after=parseFloat(this.value); setMissionUnsaved();"></td>
+                <td><select class="form-select" onchange="points[${i}].channel=this.value; togglePwmFields(${i}); setMissionUnsaved();"><option value="OFF" ${p.channel === 'OFF' ? 'selected' : ''}>OFF</option><option value="10" ${p.channel === '10' ? 'selected' : ''}>10</option><option value="11" ${p.channel === '11' ? 'selected' : ''}>11</option><option value="12" ${p.channel === '12' ? 'selected' : ''}>12</option><option value="13" ${p.channel === '13' ? 'selected' : ''}>13</option></select></td>
+                <td id="pwmCell_${i}"><select class="form-select" onchange="points[${i}].pwm=parseInt(this.value); setMissionUnsaved();"><option value="1900" ${p.pwm === 1900 ? 'selected' : ''}>1900</option><option value="1100" ${p.pwm === 1100 ? 'selected' : ''}>1100</option></select></td>
+                <td id="durationCell_${i}"><input type="number" step="0.1" value="${p.duration || 0}" class="form-input" onblur="points[${i}].duration=parseFloat(this.value); setMissionUnsaved();"></td>
+                <td><input type="checkbox" ${p.direct_flight ? 'checked' : ''} onchange="points[${i}].direct_flight=this.checked; setMissionUnsaved();" class="h-5 w-5 mx-auto block"></td>
+                <td><input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="points[${i}].enabled=this.checked; setMissionUnsaved(); updateAllUI();" class="h-5 w-5 mx-auto block"></td>
+                <td>${distance} م</td>
+                <td class="actions-cell"></td>`;
+            
+            const actionsCell = row.querySelector('.actions-cell');
+            
+            const editBtn = document.createElement('button');
+            editBtn.className = 'action-btn';
+            editBtn.innerHTML = '<i class="fas fa-edit"></i>';
+            editBtn.onclick = () => showPointModal(i);
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'action-btn';
+            deleteBtn.innerHTML = '<i class="fas fa-trash-alt text-red-500"></i>';
+            deleteBtn.onclick = () => showConfirmation('حذف نقطة', `هل أنت متأكد من حذف النقطة "${p.name}"؟`, () => deletePoint(i));
+            
+            actionsCell.append(editBtn, deleteBtn);
+            togglePwmFields(i);
+        });
+    }
+
+    function togglePwmFields(rowIndex) {
+        const row = document.querySelector(`#pointsTable tbody tr:nth-child(${rowIndex + 1})`);
+        if (!row) return;
+        
+        const isDisabled = points[rowIndex].channel === 'OFF';
+        const pwmCell = row.querySelector(`#pwmCell_${rowIndex} select`);
+        const durationCell = row.querySelector(`#durationCell_${rowIndex} input`);
+        
+        if (pwmCell) pwmCell.disabled = isDisabled;
+        if (durationCell) durationCell.disabled = isDisabled;
+    }
+
+    function updateMissionSummary() {
+        document.getElementById('pointsCount').textContent = points.filter(p => p.enabled).length;
+        
+        let totalDistance = 0;
+        for (let i = 1; i < points.length; i++) {
+            if (points[i].enabled && points[i-1].enabled) {
+                totalDistance += calculateDistance(points[i-1], points[i]);
+            }
+        }
+        
+        document.getElementById('totalDistance').textContent = `${totalDistance.toFixed(1)} م`;
+        document.getElementById('returnType').textContent = 
+            currentRTLOptions.mode === 'rtl' ? 'RTL' : 'مخصصة';
+    }
+    
+    function updateSaveStatus() {
+        const statusEl = document.getElementById('saveStatus'), 
+              startBtn = document.getElementById('startMissionBtn');
+              
+        if (missionSaved) {
+            statusEl.textContent = 'محفوظة'; 
+            statusEl.classList.replace('text-red-500', 'text-green-500'); 
+            startBtn.disabled = missionRunning;
+        } else {
+            statusEl.textContent = 'غير محفوظة'; 
+            statusEl.classList.replace('text-green-500', 'text-red-500'); 
+            startBtn.disabled = true;
+        }
+    }
+
+    function setMissionUnsaved() { 
+        missionSaved = false; 
+        updateSaveStatus(); 
+    }
+    
+    function centerMap(lat, lon, zoom = 15) { 
+        if (map) map.setView([lat, lon], zoom); 
+    }
+    
+    function centerMapOnPoints() {
+        if (!map) return;
+        const enabledPoints = points.filter(p => p.enabled);
+        
+        if (enabledPoints.length > 0) {
+            const bounds = L.latLngBounds(enabledPoints.map(p => [p.lat, p.lon]));
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        } else {
+            map.setView([15.3694, 44.1910], 8);
+        }
+    }
+    
+    function setButtonsState(running) {
+        const btns = [
+            'addPointBtn', 'addPointMapBtn', 'saveMissionBtn', 
+            'loadMissionBtn', 'startMissionBtn'
+        ];
+        
+        btns.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.disabled = running;
+                btn.classList.toggle('disabled-btn', running);
+            }
+        });
+        
+        document.getElementById('endMissionBtn').disabled = !running;
+        document.getElementById('endMissionBtn').classList.toggle('disabled-btn', !running);
+    }
+    
+    function showModal(modalId) { 
+        const modal = document.getElementById(modalId); 
+        if(modal){ 
+            modal.classList.remove('hidden'); 
+            setTimeout(() => modal.classList.remove('opacity-0'), 10); 
+        } 
+    }
+    
+    function hideModal(modalId) { 
+        const modal = document.getElementById(modalId); 
+        if(modal){ 
+            modal.classList.add('opacity-0'); 
+            setTimeout(() => modal.classList.add('hidden'), 300); 
+        } 
+    }
+    
+    function showPointModal(index = -1) {
+        currentPointIndex = index;
+        const form = document.getElementById('pointForm'); 
+        form.reset();
+        
+        const latInput = document.getElementById('pointLat'), 
+              lonInput = document.getElementById('pointLon'),
+              altSeaInput = document.getElementById('pointAltSeaLevel');
+        
+        // إضافة البحث عن الارتفاع عند تغيير الإحداثيات
+        const updateElevation = async () => {
+            if (!isNaN(parseFloat(latInput.value)) && !isNaN(parseFloat(lonInput.value))) {
+                altSeaInput.value = "جارٍ...";
+                try {
+                    const data = await apiCall(`/api/elevation?lat=${latInput.value}&lon=${lonInput.value}`);
+                    altSeaInput.value = parseFloat(data.elevation).toFixed(2);
+                } catch { 
+                    altSeaInput.value = "خطأ"; 
+                }
+            }
+        };
+        
+        latInput.onblur = updateElevation;
+        lonInput.onblur = updateElevation;
+        
+        if (index === -1) {
+            document.getElementById('pointModalTitle').textContent = 'إضافة نقطة';
+            form.onsubmit = (e) => { e.preventDefault(); addPoint(); };
+        } else {
+            document.getElementById('pointModalTitle').textContent = `تعديل نقطة ${index + 1}`;
+            const p = points[index];
+            
+            // تعبئة حقول النموذج
+            document.getElementById('pointName').value = p.name || '';
+            document.getElementById('pointLat').value = p.lat || '';
+            document.getElementById('pointLon').value = p.lon || '';
+            document.getElementById('pointAlt').value = p.alt || 20;
+            document.getElementById('pointWaitBefore').value = p.wait_before || 0;
+            document.getElementById('pointWaitAfter').value = p.wait_after || 0;
+            document.getElementById('pointChannel').value = p.channel || 'OFF';
+            document.getElementById('pointPWM').value = p.pwm || 1900;
+            document.getElementById('pointDuration').value = p.duration || 0;
+            document.getElementById('pointServo').checked = !!p.servo;
+            document.getElementById('pointDirectFlight').checked = !!p.direct_flight;
+            document.getElementById('pointEnabled').checked = !!p.enabled;
+            
+            altSeaInput.value = (typeof p.alt_sea_level === 'number') ? 
+                p.alt_sea_level.toFixed(2) : 
+                (p.alt_sea_level || '');
+            
+            form.onsubmit = (e) => { e.preventDefault(); saveEditedPoint(); };
+        }
+        
+        showModal('pointModal');
+    }
+    
+    function hidePointModal() { hideModal('pointModal'); }
+    
+    function saveRTLOptions() {
+        currentRTLOptions.mode = document.querySelector('input[name="rtl_mode"]:checked').value;
+        currentRTLOptions.alt = parseFloat(document.getElementById('rtlAlt').value) || 20;
+        currentRTLOptions.lat = parseFloat(document.getElementById('rtlLat').value) || 0;
+        currentRTLOptions.lon = parseFloat(document.getElementById('rtlLon').value) || 0;
+        
+        // تبديل رؤية الحقول المخصصة
+        const customFields = document.getElementById('customRTLFields');
+        customFields.classList.toggle('hidden', currentRTLOptions.mode !== 'custom');
+        
+        setMissionUnsaved(); 
+        updateAllUI(); 
+        hideRTLOptionsModal();
+        showMessage('success', 'تم الحفظ', 'تم حفظ خيارات العودة.');
+    }
+    
+    function addPoint() { 
+        const p = getPointFromModal(); 
+        if(p) { 
+            points.push(p); 
+            finishPointUpdate('أُضيفت النقطة.', p.lat, p.lon); 
+        } 
+    }
+    
+    function saveEditedPoint() { 
+        if(currentPointIndex > -1) { 
+            const p = getPointFromModal(); 
+            if(p) { 
+                points[currentPointIndex] = p; 
+                finishPointUpdate('تم تحديث النقطة.'); 
+            } 
+        } 
+    }
+    
+    function getPointFromModal() {
+        return {
+            name: document.getElementById('pointName').value,
+            lat: parseFloat(document.getElementById('pointLat').value),
+            lon: parseFloat(document.getElementById('pointLon').value),
+            alt: parseFloat(document.getElementById('pointAlt').value) || 20,
+            alt_sea_level: document.getElementById('pointAltSeaLevel').value,
+            wait_before: parseFloat(document.getElementById('pointWaitBefore').value) || 0,
+            wait_after: parseFloat(document.getElementById('pointWaitAfter').value) || 0,
+            channel: document.getElementById('pointChannel').value,
+            pwm: parseInt(document.getElementById('pointPWM').value) || 1900,
+            duration: parseFloat(document.getElementById('pointDuration').value) || 0,
+            servo: document.getElementById('pointServo').checked,
+            direct_flight: document.getElementById('pointDirectFlight').checked,
+            enabled: document.getElementById('pointEnabled').checked
+        };
+    }
+    
+    function finishPointUpdate(msg, lat, lon) { 
+        setMissionUnsaved(); 
+        updateAllUI(); 
+        hidePointModal(); 
+        showMessage('success', 'نجاح', msg); 
+        if (lat && lon) centerMap(lat, lon, 17); 
+    }
+    
+    function deletePoint(index) { 
+        const pointName = points[index].name;
+        points.splice(index, 1); 
+        setMissionUnsaved(); 
+        updateAllUI(); 
+        showMessage('info', 'تم الحذف', `تم حذف النقطة "${pointName}".`); 
+    }
+
+    async function apiCall(endpoint, options = {}) {
+    try {
+        const response = await fetch(`${BASE_URL}${endpoint}`, {
+            headers: { 'Content-Type': 'application/json' },
+            ...options
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || `فشل الطلب برمز الحالة ${response.status}`);
+        }
+
+        // التعامل الخاص مع السجل
+        if (endpoint === '/api/log') {
+            return await response.text();
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('خطأ في API:', error);
+        throw error;
+    }
+}
+
+    
+    async function saveMission() {
+        try {
+            await apiCall('/api/mission/save', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    points, 
+                    rtl: currentRTLOptions 
+                })
+            });
+            
+            showMessage('success', 'تم الحفظ', 'حُفظت المهمة بنجاح.');
+            missionSaved = true; 
+            updateSaveStatus();
+        } catch (error) { 
+            showMessage('error', 'فشل الحفظ', error.message); 
+        }
+    }
+    
+    async function loadMission() {
+        try {
+            const data = await apiCall('/api/mission/load');
+            points = data.points || [];
+            currentRTLOptions = data.rtl || { mode: 'rtl', alt: 20 };
+            
+            showMessage('success', 'تم التحميل', 'حُملت المهمة بنجاح.');
+            missionSaved = true; 
+            updateAllUI();
+        } catch (error) { 
+            showMessage('error', 'فشل التحميل', error.message); 
+        }
+    }
+    
+    async function startMission() {
+        if (!missionSaved) { 
+            showMessage('warning', 'تنبيه', 'يجب حفظ المهمة أولاً.'); 
+            return; 
+        }
+        
+        showConfirmation('بدء المهمة', 'هل أنت متأكد من بدء المهمة؟', async () => {
+            try {
+                setButtonsState(true);
+                missionRunning = true;
+                
+                await apiCall('/api/mission/start', { method: 'POST' });
+                showMessage('success', 'بدأت المهمة', 'تم إرسال أمر البدء. جاري متابعة السجل...');
+                
+                if(logIntervalId) clearInterval(logIntervalId);
+                logIntervalId = setInterval(fetchLog, 2000);
+                
+                // بدء تحديثات موقع الدرون
+                if (droneLocationIntervalId) clearInterval(droneLocationIntervalId);
+                droneLocationIntervalId = setInterval(fetchDroneLocation, 2000);
+                
+                // جلب السجل فوراً
+                fetchLog();
+            } catch (error) { 
+                showMessage('error', 'فشل البدء', error.message);
+                setButtonsState(false);
+                missionRunning = false;
+            }
+        }, 'btn-success');
+    }
+    
+    async function endMission() {
+        showConfirmation('إنهاء المهمة', 'هل أنت متأكد من إنهاء المهمة؟', async () => {
+            try {
+                await apiCall('/api/mission/end', { method: 'POST' });
+                showMessage('info', 'انتهت المهمة', 'تم إرسال أمر الإنهاء.');
+                setButtonsState(false);
+                missionRunning = false;
+            } catch (error) { 
+                showMessage('error', 'فشل الإنهاء', error.message); 
+            } finally {
+                // إيقاف التحديثات المباشرة
+                if(logIntervalId) { 
+                    clearInterval(logIntervalId); 
+                    logIntervalId = null; 
+                }
+                if (droneLocationIntervalId) {
+                    clearInterval(droneLocationIntervalId);
+                    droneLocationIntervalId = null;
+                }
+                fetchLog();
+            }
+        });
+    }
+    
+    async function fetchDroneLocation() {
+        try {
+            const data = await apiCall('/api/drone/location');
+            const droneStatusCard = document.getElementById('droneStatusCard');
+            
+            if (data.lat !== 0 && data.lon !== 0) {
+                droneStatusCard.style.display = 'block';
+                document.getElementById('droneLat').textContent = data.lat.toFixed(6);
+                document.getElementById('droneLon').textContent = data.lon.toFixed(6);
+                document.getElementById('droneAlt').textContent = `${data.alt.toFixed(1)} م`;
+                document.getElementById('droneMode').textContent = data.mode;
+                
+                // تحديث علامة الدرون
+                if (droneMarker) map.removeLayer(droneMarker);
+                droneMarker = L.marker([data.lat, data.lon], { icon: droneIcon })
+                    .bindTooltip(`الدرون: ${data.mode}`)
+                    .addTo(map);
+            }
+        } catch (error) {
+            console.error('فشل جلب موقع الدرون:', error);
+        }
+    }
+
+   async function fetchLog() {
+    try {
+        const text = await apiCall('/api/log');
+        const logOutput = document.getElementById('logOutput');
+
+        const LOG_LIMIT = 50; // عدد السطور المعروضة فقط
+        const lines = text.trim().split("\n");
+        const recentLines = lines.slice(-LOG_LIMIT).reverse(); // الأحدث أولاً
+
+        logOutput.innerHTML = recentLines.map(line => {
+            let levelClass = '';
+            if (line.includes('[معلومات]')) levelClass = 'log-info';
+            else if (line.includes('[نجاح]')) levelClass = 'log-success';
+            else if (line.includes('[تحذير]')) levelClass = 'log-warning';
+            else if (line.includes('[خطأ]')) levelClass = 'log-error';
+            else if (line.includes('[حرج]')) levelClass = 'log-critical';
+
+            return `<div class="${levelClass}">${line}</div>`;
+        }).join('');
+
+        // التمرير تلقائياً إلى الأعلى
+        logOutput.scrollTop = 0;
+
+        if (text.includes("========== انتهت المهمة ==========")) {
+            setButtonsState(false);
+            missionRunning = false;
+        }
+    } catch (err) {
+        console.error("خطأ في جلب السجل:", err);
+    }
+}
+
+    function clearLog() {
+        showConfirmation('مسح السجل', 'هل أنت متأكد من مسح سجل المهام؟', async () => {
+            try {
+                await apiCall('/api/log', { method: 'DELETE' });
+                document.getElementById('logOutput').innerHTML = '';
+                showMessage('info', 'تم المسح', 'تم مسح سجل المهام.');
+            } catch (error) {
+                showMessage('error', 'فشل المسح', error.message);
+            }
+        });
+    }
+    
+    async function checkServerConnection() { 
+        try { 
+            const data = await apiCall('/api/status');
+            
+            // تحديث معلومات الاتصال
+            document.getElementById('connectionString').textContent = data.drone_connection_string;
+            document.getElementById('baudRate').textContent = data.drone_baud_rate;
+            document.getElementById('droneConnectionInfo').classList.remove('hidden');
+            
+            if(!serverConnected) {
+                showMessage('success', 'نجاح', 'تم الاتصال بالخادم.');
+                serverConnected = true;
+            }
+            
+            updateConnectionStatus(true); 
+        } catch (error) { 
+            if(serverConnected) {
+                showMessage('error', 'خطأ', 'فُقد الاتصال بالخادم.');
+                serverConnected = false;
+            }
+            updateConnectionStatus(false);
+        } 
+    }
+    
+    function updateConnectionStatus(isOk) { 
+        const statusText = document.getElementById('connectionStatus');
+        const dot = document.getElementById('connectionDot'); 
+        dot.classList.remove('animate-pulse');
+        
+        if(isOk) {
+            statusText.textContent = 'متصل'; 
+            dot.className = 'w-3 h-3 rounded-full bg-green-500';
+        } else {
+            statusText.textContent = 'غير متصل';
+            dot.className = 'w-3 h-3 rounded-full bg-red-500';
+        }
+    }
+    
+    function hideUniversalModal() { hideModal('universalModal'); }
+    
+    function showMessage(type, title, msg) {
+        const modal = document.getElementById('universalModal');
+        modal.querySelector('#universalModalTitle').textContent = title;
+        modal.querySelector('#universalModalMessage').textContent = msg;
+        
+        const iconMap = {
+            success: 'fa-check-circle text-green-500', 
+            error: 'fa-times-circle text-red-500', 
+            warning: 'fa-exclamation-triangle text-yellow-500', 
+            info: 'fa-info-circle text-cyan-500'
+        };
+        
+        modal.querySelector('#universalModalIcon').innerHTML = `<i class="fas ${iconMap[type]}"></i>`;
+        
+        const btnContainer = modal.querySelector('#universalModalButtons');
+        btnContainer.innerHTML = '';
+        
+        const okBtn = document.createElement('button');
+        okBtn.className = 'btn btn-primary';
+        okBtn.textContent = 'موافق';
+        okBtn.onclick = hideUniversalModal;
+        btnContainer.appendChild(okBtn);
+        
+        showModal('universalModal');
+    }
+    
+    function showConfirmation(title, msg, onConfirm, btnClass = 'btn-danger') {
+        const modal = document.getElementById('universalModal');
+        modal.querySelector('#universalModalTitle').textContent = title;
+        modal.querySelector('#universalModalMessage').textContent = msg;
+        modal.querySelector('#universalModalIcon').innerHTML = '<i class="fas fa-question-circle text-yellow-500"></i>';
+        
+        const btnContainer = modal.querySelector('#universalModalButtons');
+        btnContainer.innerHTML = '';
+        
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.textContent = 'إلغاء';
+        cancelBtn.onclick = hideUniversalModal;
+        
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = `btn ${btnClass}`;
+        confirmBtn.textContent = 'تأكيد';
+        confirmBtn.onclick = () => { 
+            onConfirm(); 
+            hideUniversalModal(); 
+        };
+        
+        btnContainer.append(cancelBtn, confirmBtn);
+        showModal('universalModal');
+    }
+    
+    window.onload = () => { 
+        initMap(); 
+        loadMission(); 
+        checkServerConnection(); 
+        setInterval(checkServerConnection, 10000); 
+        setButtonsState(false);
+        fetchLog(); // جلب السجل عند التحميل
+    };
+  </script>
+</body>
+</html>
